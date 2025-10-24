@@ -2,7 +2,7 @@
 # I may make a disk tool later on
 
 # floppy image
-build/S16-floppy.img: build/BOOT.BIN build/S16.SYS
+build/S16-floppy.img: build/BOOT.BIN build/SYSTEM.SYS
 	@mkdir -p $(dir $@)
 	dd if=/dev/zero of=$@ bs=512 count=2880
 # Format to fat12
@@ -10,7 +10,7 @@ build/S16-floppy.img: build/BOOT.BIN build/S16.SYS
 # Inject the boot sector
 	dd if=build/BOOT.BIN of=$@ bs=1 seek=62 count=448 conv=notrunc
 # Copy the kernel to the images root
-	mcopy -i $@ build/S16.SYS ::S16.SYS
+	mcopy -i $@ build/SYSTEM.SYS ::SYSTEM.SYS
 	@sync
 
 build/BOOT.BIN:
@@ -21,7 +21,7 @@ build/BOOT.BIN:
 # Get rid of the source file
 	rm BOOT.ASM
 
-build/S16.SYS: SOURCE/S16.ASM
+build/SYSTEM.SYS: SOURCE/SYSTEM.ASM
 	@mkdir -p $(dir $@)
 # I'll use NASM
 	nasm -f bin $< -o $@
