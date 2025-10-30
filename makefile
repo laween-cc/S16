@@ -14,7 +14,7 @@ build/S16-FLOPPY.IMG: build/BOOT.BIN build/SYSTEM.SYS
 	@sync
 
 build/BOOT.BIN:
-	curl -o boot.asm https://raw.githubusercontent.com/laween-cc/S16-boot/refs/heads/master/boot.asm
+	curl -o boot.asm https://raw.githubusercontent.com/mekebabman/S16-boot/refs/heads/master/boot.asm
 # I'll use NASM to assemble
 	@mkdir -p $(dir $@)
 	nasm -f bin boot.asm -o $@
