@@ -21,27 +21,30 @@ START:
 
     REP MOVSW
 
-    ; Setup disk services
+    ; Setup disk services (int 20h)
     MOV WORD [20H * 4], DISK
     MOV WORD [20H * 4 + 2], 0000H
     
-    ; Setup file system disk services
+    ; Setup file system disk services (int 21h)
     MOV WORD [21H * 4], FSDISK
     MOV WORD [21H * 4 + 2], 0000H
 
-    ; Setup video services
-    MOV WORD [24H * 4], VIDEO
+    ; Setup a periodic tick handler (int 22h)
+
+    ; Set up a memory manager (int 23h)
+
+    ; Setup a simple print service (int 24h)
+    MOV WORD [24H * 4], PRINT
     MOV WORD [24H * 4 + 2], 0000H
 
     ; Set current directory to root (0000h)
     MOV WORD [CURRENTDIR], 0
 
     ; Root start
-    ; Reserved logical sectors + (2 * logical sectors per fat)    
-    MOV AL, [BIOSBLOCK + 00EH]
+    ; 1 + (2 * logical sectors per fat) ; assuming reserved sectors is 1    
     MOV CL, [BIOSBLOCK + 016H]
     ADD CL, CL
-    ADD CL, AL
+    INC CL
     MOV BYTE [ROOTSECTOR], CL
 
     ; Root sectors
@@ -63,13 +66,12 @@ ERROR:
     ; Return:
     ; nothing
 
-    ; Clear the screen
+    ; Clear the screen and set video mode to 80x25
     MOV AX, 0003H
     INT 10H
 
     ; Write the error mesasge to screen
     MOV BX, 0007H
-    MOV AH, 0E3H
     
     PUSH SI
     MOV SI, ERMAIN
@@ -84,18 +86,6 @@ ERROR:
     XOR AH, AH
     INT 16H
     INT 19H
-
-VIDEO:
-    ; Parameters:
-    ; ah = service
-    ; ...
-    ; Return:
-    ; ...
-
-    CMP AH, 0E3H
-    JE PRINT
-
-    IRET
 
 PRINT:
     ; Parameters:
@@ -118,27 +108,6 @@ PRINTEND:
     IRET
 
 
-FSDISK:
-    ; Parameters:
-    ; ah = service
-    ; ...
-    ; Return:
-    ; ...
-
-    CMP AH, 4AH
-    JE NEXTCLUSTER
-
-    IRET
-
-NEXTCLUSTER:
-    ; Parameters:
-    ; dx = cluster
-    ; Return:
-    ; CF = 0 = success
-    ; CF = 1 = no next cluster
-    ; bx = next cluster
-
-
 DISK:
     ; Parameters:
     ; ah = service
@@ -156,15 +125,13 @@ DISK:
     IRET
 RWSTART: ; Read / write start
     ; Parameters:
-    ; dl = drive number (0 - 255)
-    ; dh = sectors to read / write (1 - 128)
-    ; cx = logical starting sector (0 - 65535)
+    ; al = sectors to read / write (1 - 128)
+    ; dx = logical starting sector (0 - 65535)
     ; es:bx = memory buffer
     ; Return:
     ; CF = 0 = success
     ; CF = 1 = failure
     ; ah = bios status
-
 
     PUSH ES
     PUSH BX
@@ -173,18 +140,19 @@ RWSTART: ; Read / write start
     PUSH CX
     PUSH BP
     PUSH DS
+    
+    PUSHF ; Gotta push the flags to restore the interrupt flag
+
     XOR BP, BP
     MOV DS, BP
 
     MOV BYTE [SCRATCHMEM], AH ; Preserve bios call
-    
-    PUSHF ; Gotta push the flags to restore the interrupt flag
+    MOV BYTE [SCRATCHMEM + 1], AL; Preserve sectors to read
 
     ; Fix 64KiB segment boundary
     CALL FIXSEGMENT
 
     ; LBA to CHS
-    MOV BYTE [SCRATCHMEM + 1], DH; Preserve sectors to read
     MOV AH, 04H
     INT 20H
 
@@ -244,8 +212,7 @@ RWNOIF: ; Already disabled interrupt
 
 LBATOCHS:
     ; Parameters:
-    ; dl = drive number (0 - 255)
-    ; cx = logical starting sector (0 - 65535)
+    ; dx = logical starting sector (0 - 65535)
     ; Return:
     ; CF = 0 = success
     ; CF = 1 = failed to get drive parameters via int 13,8h?
@@ -253,7 +220,8 @@ LBATOCHS:
     ; ch = cylinder
     ; cl = bits 7 - 6 = cylinder
     ; cl = bits 0 - 5 = sector
-    ; dh = head 
+    ; dh = head
+    ; Note: on failure returned registers may be clobbered EXCEPT for "ah"
 
     PUSH ES
     PUSH DI
@@ -262,8 +230,9 @@ LBATOCHS:
     PUSH AX
     PUSH DX
 
-    MOV BP, CX ; Preserve the LBA
+    MOV BP, DX ; Preserve the LBA
     MOV AH, 08H
+    MOV DL, [BOOTDRIVE]
     INT 13H
 
     JC LBACHSEND
@@ -336,7 +305,6 @@ FIXSEGMENT:
 TEMPSTACK: EQU 0FFFH 
 PROGRAMSEGMENT: EQU 00D5H
 SCRATCHMEM: EQU 0B00H ; 1KiB
-
 
 ; Data area
 BOOTDRIVE: EQU 0D00H ; 1 byte
