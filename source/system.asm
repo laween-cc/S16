@@ -153,6 +153,7 @@ RWSTART: ; Read / write start
     CALL FIXSEGMENT
 
     ; LBA to CHS
+    MOV AL, [BOOTDRIVE]
     MOV AH, 04H
     INT 20H
 
@@ -212,6 +213,7 @@ RWNOIF: ; Already disabled interrupt
 
 LBATOCHS:
     ; Parameters:
+    ; al = drive number (0 - 255)
     ; dx = logical starting sector (0 - 65535)
     ; Return:
     ; CF = 0 = success
@@ -231,8 +233,8 @@ LBATOCHS:
     PUSH DX
 
     MOV BP, DX ; Preserve the LBA
+    MOV DL, AL
     MOV AH, 08H
-    MOV DL, [BOOTDRIVE]
     INT 13H
 
     JC LBACHSEND
