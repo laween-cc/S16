@@ -14,6 +14,7 @@ build/S16-FLOPPY.IMG: build/BOOT.BIN build/SYSTEM.SYS
 	@sync
 
 build/BOOT.BIN:
+
 	curl -o boot.asm https://raw.githubusercontent.com/mekebabman/S16-boot/refs/heads/master/boot.asm
 # I'll use NASM to assemble
 	@mkdir -p $(dir $@)
@@ -32,5 +33,5 @@ build/SYSTEM.SYS: source/system.asm
 clean:
 	rm -r build/* --verbose --one-file-system --preserve-root
 
-qemu: build/S16-floppy.img
+qemu: build/S16-FLOPPY.IMG
 	qemu-system-i386 -drive file=$<,format=raw,if=floppy -boot order=a
