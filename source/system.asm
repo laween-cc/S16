@@ -1,4 +1,4 @@
-[BITS 16]
+BITS 16
 ORG 0500H
 
 START:
@@ -26,8 +26,6 @@ START:
     MOV WORD [20H * 4 + 2], 0000H
     
     ; Setup file system disk services (int 21h)
-    MOV WORD [21H * 4], FSDISK
-    MOV WORD [21H * 4 + 2], 0000H
 
     ; Setup a periodic tick handler (int 22h)
 
