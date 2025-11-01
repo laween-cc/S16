@@ -26,6 +26,8 @@ START:
     MOV WORD [20H * 4 + 2], 0000H
     
     ; Setup file system disk services (int 21h)
+    MOV WORD [21H * 4], FSDISK
+    MOV WORD [21H * 4 + 2] 0000H
 
     ; Setup a periodic tick handler (int 22h)
 
@@ -106,6 +108,46 @@ PRINTEND:
     IRET
 
 
+FSDISK:
+   ; Parameters:
+   ; ah = service
+   ; ...
+   ; Return:
+   ; ...
+
+   CMP AH, 03H
+   JE NEXTCLUSTER
+
+   IRET
+    
+NEXTCLUSTER:
+    ; Parameters:
+    ; dx = cluster
+    ; Return:
+    ; CF = 0 = success
+    ; CF = 1 = bad cluster / free cluster / end of chain / disk read 
+    ; dx = next cluster
+    ; ah = non bios / bios status
+    ; Non bios status codes:
+    ; E3 = bad cluster
+    ; E4 = free cluster
+    ; EC = end of chain
+    ; Bios status:
+    ; depends on the vendor! This will only be returned in "ah" IF there was a disk read error
+
+    ; Next cluster offset
+    ; N + (N / 2)
+    MOV AX, DX
+        
+
+    ; Sector to read
+    ; (Next cluster offset / 512) + 1 ; Assuming reserved sectors is 1
+
+
+
+    ; 
+
+
 DISK:
     ; Parameters:
     ; ah = service
@@ -124,7 +166,7 @@ DISK:
 RWSTART: ; Read / write start
     ; Parameters:
     ; al = sectors to read / write (1 - 128)
-    ; dx = logical starting sector (0 - 65535)
+    ; dx = absolute starting sector (0 - 65535)
     ; es:bx = memory buffer
     ; Return:
     ; CF = 0 = success
@@ -146,12 +188,11 @@ RWSTART: ; Read / write start
 
     MOV BYTE [SCRATCHMEM], AH ; Preserve bios call
     MOV BYTE [SCRATCHMEM + 1], AL; Preserve sectors to read
-
+  
     ; Fix 64KiB segment boundary
     CALL FIXSEGMENT
 
     ; LBA to CHS
-    MOV AL, [BOOTDRIVE]
     MOV AH, 04H
     INT 20H
 
@@ -160,7 +201,8 @@ RWSTART: ; Read / write start
     ; ch = cylinder
     ; cl = bits 7 - 6 = cylinder
     ; cl = bits 0 - 5 = sector
-    ; dh = head 
+    ; dh = head
+    ; dl = NDboot drive
 
     MOV BP, 3 ; Retry counter
 RWBIOS:
@@ -211,7 +253,6 @@ RWNOIF: ; Already disabled interrupt
 
 LBATOCHS:
     ; Parameters:
-    ; al = drive number (0 - 255)
     ; dx = logical starting sector (0 - 65535)
     ; Return:
     ; CF = 0 = success
@@ -221,17 +262,21 @@ LBATOCHS:
     ; cl = bits 7 - 6 = cylinder
     ; cl = bits 0 - 5 = sector
     ; dh = head
-    ; Note: on failure returned registers may be clobbered EXCEPT for "ah"
+    ; dl = boot drive
+    ; Note: on failure returned registers may be clobbered EXCEPT for "ah" and "dl"
+
 
     PUSH ES
     PUSH DI
     PUSH BP
     PUSH BX
     PUSH AX
+    XOR AX, AX
+    MOV ES, AX
+    MOV DL, [ES:BOOTDRIVE]
     PUSH DX
-
+    
     MOV BP, DX ; Preserve the LBA
-    MOV DL, AL
     MOV AH, 08H
     INT 13H
 
