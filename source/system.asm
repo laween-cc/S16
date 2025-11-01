@@ -27,11 +27,11 @@ START:
     
     ; Setup file system disk services (int 21h)
     MOV WORD [21H * 4], FSDISK
-    MOV WORD [21H * 4 + 2] 0000H
+    MOV WORD [21H * 4 + 2], 0000H
 
-    ; Setup a periodic tick handler (int 22h)
-
-    ; Set up a memory manager (int 23h)
+    ; Set up a memory manager (int 22h)
+    MOV WORD [22H * 4], MEMMANAGE
+    MOV WORD [22H * 4 + 2], MEMMANAGE
 
     ; Setup a simple print service (int 24h)
     MOV WORD [24H * 4], PRINT
@@ -107,46 +107,24 @@ PRINTEND:
     POP AX
     IRET
 
-
-FSDISK:
-   ; Parameters:
-   ; ah = service
-   ; ...
-   ; Return:
-   ; ...
-
-   CMP AH, 03H
-   JE NEXTCLUSTER
-
-   IRET
-    
-NEXTCLUSTER:
+MEMMANAGE:
     ; Parameters:
-    ; dx = cluster
+    ; ah = service
+    ; ...
     ; Return:
-    ; CF = 0 = success
-    ; CF = 1 = bad cluster / free cluster / end of chain / disk read 
-    ; dx = next cluster
-    ; ah = non bios / bios status
-    ; Non bios status codes:
-    ; E3 = bad cluster
-    ; E4 = free cluster
-    ; EC = end of chain
-    ; Bios status:
-    ; depends on the vendor! This will only be returned in "ah" IF there was a disk read error
+    ; ...
 
-    ; Next cluster offset
-    ; N + (N / 2)
-    MOV AX, DX
-        
-
-    ; Sector to read
-    ; (Next cluster offset / 512) + 1 ; Assuming reserved sectors is 1
+    IRET
+    
+FSDISK:
+    ; Parameters:
+    ; ah = service
+    ; ...
+    ; Return:
+    ; ...
 
 
-
-    ; 
-
+    IRET 
 
 DISK:
     ; Parameters:
@@ -159,8 +137,6 @@ DISK:
     JE RWSTART
     CMP AH, 03H
     JE RWSTART
-    CMP AH, 04H
-    JE LBATOCHS
 
     IRET
 RWSTART: ; Read / write start
@@ -178,9 +154,10 @@ RWSTART: ; Read / write start
     PUSH AX
     PUSH DX
     PUSH CX
+    PUSH DI
     PUSH BP
     PUSH DS
-    
+
     PUSHF ; Gotta push the flags to restore the interrupt flag
 
     XOR BP, BP
@@ -188,23 +165,62 @@ RWSTART: ; Read / write start
 
     MOV BYTE [SCRATCHMEM], AH ; Preserve bios call
     MOV BYTE [SCRATCHMEM + 1], AL; Preserve sectors to read
-  
+
     ; Fix 64KiB segment boundary
     CALL FIXSEGMENT
 
     ; LBA to CHS
-    MOV AH, 04H
-    INT 20H
+    MOV BP, DX ; Preserve the LBA
+    
+    PUSH ES
+    PUSH BX
 
-    JC RWEND
+    MOV DL, [BOOTDRIVE]
+    MOV AH, 08H ; Get drive parameters from int 13,08h, because some BIOS like lying for some reason.
+    INT 13H
+    
+    POP BX
+    POP ES
+
+    JC RWEND ; Failed to get drive parameters?
+
+    INC DH ; We need number of heads to start from 1
+    AND CL, 3FH ; 00111111B ; Zero out bits 7 - 6, because we only need sectors per track
+
+    ; Cylinder
+    ; LBA / (HPC * SPT)
+    MOV AL, DH
+    XOR AH, AH
+    MUL CL
+
+    XCHG BP, AX
+    XOR DX, DX
+    DIV BP
+    MOV BP, AX
+
+    ; Head
+    ; LBA % (HPC * SPT) / SPT
+    MOV AX, DX
+    DIV CL
+    MOV DH, AL ; Put head in the right place
+
+    ; Sector
+    ; LBA % (HPC * SPT) % SPT + 1
+    INC AH
+
+    MOV CX, BP ; Put cylinder in the right place
+    SHL CL, 6 ; Shift bits 0 - 1 to bits 7 - 6 and zero out bits 0 - 5
+    ; AND AH, 3FH ; 00111111B ; Zero out bits 7 - 6
+    OR CL, AH ; Combine the bits
 
     ; ch = cylinder
     ; cl = bits 7 - 6 = cylinder
     ; cl = bits 0 - 5 = sector
     ; dh = head
-    ; dl = NDboot drive
 
-    MOV BP, 3 ; Retry counter
+    MOV DL, [BOOTDRIVE] ; Put boot drive in "dl" again sense we overwrote it 
+    MOV BP, 6 ; Retry counter ; Retry 5 times before failing!
+    ; If you're wondering why I used 6 instead of 5.. thats because I am using DEC + JZ to check (see below)
 RWBIOS:
     CLI ; Disable interrupts for safer disk access
     MOV AH, [SCRATCHMEM] ; Bios call 
@@ -243,6 +259,7 @@ RWNOIF: ; Already disabled interrupt
 
     POP DS
     POP BP
+    POP DI
     POP CX
     POP DX
     POP BX ; AX
@@ -251,90 +268,18 @@ RWNOIF: ; Already disabled interrupt
     POP ES
     IRET
 
-LBATOCHS:
-    ; Parameters:
-    ; dx = logical starting sector (0 - 65535)
-    ; Return:
-    ; CF = 0 = success
-    ; CF = 1 = failed to get drive parameters via int 13,8h?
-    ; ah = bios status
-    ; ch = cylinder
-    ; cl = bits 7 - 6 = cylinder
-    ; cl = bits 0 - 5 = sector
-    ; dh = head
-    ; dl = boot drive
-    ; Note: on failure returned registers may be clobbered EXCEPT for "ah" and "dl"
-
-
-    PUSH ES
-    PUSH DI
-    PUSH BP
-    PUSH BX
-    PUSH AX
-    XOR AX, AX
-    MOV ES, AX
-    MOV DL, [ES:BOOTDRIVE]
-    PUSH DX
-    
-    MOV BP, DX ; Preserve the LBA
-    MOV AH, 08H
-    INT 13H
-
-    JC LBACHSEND
-
-    INC DH ; We need number of heads to start from 1
-    AND CL, 3FH ; 00111111B ; Zero out bits 7 - 6, because we only need the sectors per track
-
-    ; Cylinder
-    ; LBA / (HPC * SPT) 
-    MOV AL, DH
-    XOR AH, AH
-    MUL CL
-
-    XCHG BP, AX
-    XOR DX, DX
-    DIV BP
-    MOV BP, AX
-
-    ; Head
-    ; LBA % (HPC * SPT) / SPT
-    MOV AX, DX
-    DIV CL
-
-    ; Sector
-    ; LBA % (HPC * SPT) % SPT + 1
-    INC AH
-
-    MOV CX, BP ; Put cylinder in the right place
-    SHL CL, 6 ; Shifts bits 0 - 1 to 7 - 6 and zero bits 0 - 5
-    ; AND AH, 3FH ; 00111111B 
-    OR CL, AH ; Combine the bits
-
-    CLC
-    XOR AH, AH ; No error
-LBACHSEND:
-    POP DX
-    MOV DH, AL ; Put head in the right place
-    POP BX ; AX
-    MOV AL, BL ; Restore al
-    POP BX
-    POP BP
-    POP DI
-    POP ES
-    IRET
-
 FIXSEGMENT:
+    ; Fixes 64KiB boundary issues
     ; Parameters:
     ; es:bx = memory address
     ; Return:
     ; es = new segment
     ; bx = new offset
-    ; Fixes 64KiB boundary issues
 
     PUSH AX
     PUSH DX
     
-    ; New segment = segment + (bx << 4)
+    ; New segment = segment + (bx >> 4)
     ; New offset = offset & 000Fh
     MOV AX, BX
     SHR AX, 4
