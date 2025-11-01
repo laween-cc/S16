@@ -21,24 +21,28 @@ START:
 
     REP MOVSW
 
-    ; Setup disk services (int 20h)
-    MOV WORD [20H * 4], DISK
-    MOV WORD [20H * 4 + 2], 0000H
+    ; Setup absolute disk read (int 40h)
+    MOV WORD [40H * 4], DISKREAD
+    MOV WORD [40H * 4 + 2], 0000H
     
-    ; Setup file system disk services (int 21h)
-    MOV WORD [21H * 4], FSDISK
-    MOV WORD [21H * 4 + 2], 0000H
+    ; Setup absolute disk write (int 41h)
+    MOV WORD [41H * 4], DISKWRITE
+    MOV WORD [41H * 4 + 2], 0000H
 
-    ; Set up a memory manager (int 22h)
-    MOV WORD [22H * 4], MEMMANAGE
-    MOV WORD [22H * 4 + 2], MEMMANAGE
+    ; Setup file system disk services (int 42h)
+    MOV WORD [42H * 4], FSDISK
+    MOV WORD [42H * 4 + 2], 0000H
 
-    ; Setup a simple print service (int 24h)
-    MOV WORD [24H * 4], PRINT
-    MOV WORD [24H * 4 + 2], 0000H
+    ; Set up a memory manager (int 43h)
+    MOV WORD [43H * 4], MEMMANAGE
+    MOV WORD [43H * 4 + 2], MEMMANAGE
+
+    ; Setup a simple video print service (int 44h)
+    MOV WORD [44H * 4], PRINT
+    MOV WORD [44H * 4 + 2], 0000H
 
     ; Set current directory to root (0000h)
-    MOV WORD [CURRENTDIR], 0
+    MOV WORD [CURRENTDIR], 0000H
 
     ; Root start
     ; 1 + (2 * logical sectors per fat) ; assuming reserved sectors is 1    
@@ -75,11 +79,11 @@ ERROR:
     
     PUSH SI
     MOV SI, ERMAIN
-    INT 24H
+    INT 44H
     POP SI
-    INT 24H
+    INT 44H
     MOV SI, ERHELP
-    INT 24H
+    INT 44H
 
     ; Wait for key press and then cold reboot
     STI ; Ensure interrupts are enabled
@@ -122,23 +126,48 @@ FSDISK:
     ; ...
     ; Return:
     ; ...
-
+    
+    CMP AH, 04H
+    JE NEXTCLUSTER
+    CMP AH, 02H
+    JE OPEN
 
     IRET 
 
-DISK:
+OPEN:
     ; Parameters:
-    ; ah = service
-    ; ...
+    ; ds:si = file path in ACSII and null terminated (0 - 255)
+    ; es:bx = file descripter table
     ; Return:
+    ; CF = 0 = success
+    ; CF = 1 = failure
+    ; ah = non bios / bios status
+    ; Non bios status:
     ; ...
-
-    CMP AH, 02H
-    JE RWSTART
-    CMP AH, 03H
-    JE RWSTART
 
     IRET
+
+NEXTCLUSTER:
+    ; Parameters:
+    ; dx = cluster
+    ; Return:
+    ; CF = 0 = success
+    ; CF = 1 = failure
+    ; ah = bios status of disk read
+    ; dx = next cluster
+
+    
+
+    IRET
+    
+
+DISKREAD:
+    MOV AH, 02H
+    JMP RWSTART
+DISKWRITE:
+    MOV AH, 03H
+    JMP RWSTART
+
 RWSTART: ; Read / write start
     ; Parameters:
     ; al = sectors to read / write (1 - 128)
@@ -238,12 +267,12 @@ RWBIOS:
 
     JC RWEND ; Failed to reset disk?
 
-    ; Wait ~110ms for floppies and slower storage devices to resync
+    ; Wait ~330ms for floppies and slower storage devices to resync
     ; Bios vendor must have tick timer at 0040:006CH, otherwise will halt forever
 
     STI ; Interrupts need to be enabled for this part    
     MOV AX, [046CH]
-    ADD AX, 2 ; 2 ticks (~110ms)
+    ADD AX, 6 ; 6 ticks (~330ms)
 RWDELAY:
     CMP WORD [046CH], AX
     JL RWDELAY
